@@ -1,0 +1,29 @@
+
+{
+  "name": "Retro Codex",
+  "short_name": "RetroCodex",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#9333ea",
+  "icons": [
+    {
+      "src": "https://img.icons8.com/fluency/512/game-controller-retro.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://img.icons8.com/fluency/192/game-controller-retro.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://img.icons8.com/fluency/512/game-controller-retro.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

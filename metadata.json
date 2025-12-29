@@ -1,0 +1,5 @@
+{
+  "name": "Retro Codex",
+  "description": "A retro-themed gaming companion app to find cheats, codes, and tips for classic video games using Gemini and Google Search grounding.",
+  "requestFramePermissions": []
+}
