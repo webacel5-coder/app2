@@ -23,7 +23,7 @@ const translations = {
     errorKey: "API_KEY não configurada.",
     noResults: "Nenhum clássico encontrado. Tente nomes como 'Alex Kidd' ou 'Sonic 2'.",
     modernErrorTitle: "Módulo Retro Ativo",
-    modernErrorMessage: "ESTE DISPOSITIVO ACESSA APENAS DADOS DE JOGOS LANÇADOS ATÉ O ANO 2000.",
+    modernErrorMessage: "ESTE DISPOSITIVO ACESSA APENAS DADOS DE JOGOS LANÇADOS ATÉ O ANO 2002.",
     welcomeHeader: "BIBLIOTECA RETRO",
     welcomeText: "Busque códigos e dicas para Master System, Mega Drive, NES, SNES e mais.",
     cheatsHeader: "CÓDIGOS E TRAPAÇAS",
@@ -49,7 +49,7 @@ const translations = {
     errorKey: "API Key missing.",
     noResults: "No classics found. Try names like 'Alex Kidd' or 'Sonic 2'.",
     modernErrorTitle: "Retro Module Active",
-    modernErrorMessage: "THIS DEVICE ONLY ACCESSES GAMES RELEASED UP TO 2000.",
+    modernErrorMessage: "THIS DEVICE ONLY ACCESSES GAMES RELEASED UP TO 2002.",
     welcomeHeader: "RETRO LIBRARY",
     welcomeText: "Search for Master System, Mega Drive, NES, SNES games and more.",
     cheatsHeader: "CHEATS & CODES",
@@ -68,7 +68,6 @@ const translations = {
   }
 };
 
-// Banco de dados expandido para 50 clássicos para maior variedade no sorteio
 const RETRO_GAME_POOL = [
   "Sonic the Hedgehog", "Super Mario World", "Alex Kidd in Miracle World", 
   "The Legend of Zelda", "Phantasy Star IV", "Street Fighter II",
@@ -100,7 +99,6 @@ const App: React.FC = () => {
 
   const t = translations[lang];
 
-  // Sorteia os jogos sempre que o app é inicializado
   useEffect(() => {
     const shuffleTags = () => {
       const shuffled = [...RETRO_GAME_POOL].sort(() => 0.5 - Math.random());
@@ -145,17 +143,23 @@ const App: React.FC = () => {
 
       setSearchResults(response.games);
 
-      Promise.all(response.games.map(async (res) => {
+      // Busca capas individualmente para não travar a lista
+      response.games.forEach(async (res, idx) => {
         try {
           const cover = await getCoverByGameName(res.name);
-          return { ...res, coverUrl: cover };
-        } catch (e) { return res; }
-      })).then(resultsWithCovers => {
-        setSearchResults(resultsWithCovers);
+          if (cover) {
+            setSearchResults(prev => {
+              if (!prev) return prev;
+              const newResults = [...prev];
+              newResults[idx] = { ...newResults[idx], coverUrl: cover };
+              return newResults;
+            });
+          }
+        } catch (e) { /* silent fail for covers */ }
       });
       
     } catch (err: any) {
-      console.error("Search failure:", err);
+      console.error("Critical Search Failure:", err);
       setError(t.error);
     } finally {
       setLoading(false);
@@ -179,6 +183,7 @@ const App: React.FC = () => {
         setError(t.errorDetails);
       }
     } catch (err: any) {
+      console.error("Details Fetch Error:", err);
       setError(t.error);
     } finally {
       setLoadingDetails(false);
