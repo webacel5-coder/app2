@@ -1,57 +1,42 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 
-/**
- * Limpa a resposta da IA para garantir que apenas o objeto JSON seja processado.
- */
 function cleanJsonResponse(text: string | undefined): string {
   if (!text) return "";
   let cleaned = text.trim();
   
-  // Remove blocos de código markdown se existirem
+  // Remove markdown code blocks if present
   cleaned = cleaned.replace(/^```json/gi, "").replace(/```$/gi, "").trim();
   
-  // Localiza o objeto JSON se houver texto ao redor
+  // Isolate the JSON object if needed
   const firstBrace = cleaned.indexOf('{');
   const lastBrace = cleaned.lastIndexOf('}');
   
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+  if (firstBrace !== -1 && lastBrace !== -1) {
+    return cleaned.substring(firstBrace, lastBrace + 1);
   }
   return cleaned;
 }
 
-/**
- * Busca jogos retro.
- */
 export async function searchGamesWithGemini(query: string, lang: 'pt-BR' | 'en-US'): Promise<{ games: any[], isModernRequest: boolean }> {
+  // Always use a named parameter for the API key as per @google/genai guidelines
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const isPt = lang === 'pt-BR';
   
-  // Prompt mais flexível para evitar falsos negativos em jogos clássicos
-  const prompt = isPt 
-    ? `Você é o Retro Codex, um especialista em preservação de games.
-       USUÁRIO BUSCA POR: "${query}".
-       
-       INSTRUÇÕES:
-       1. Identifique jogos clássicos (consoles 8-bit, 16-bit, 32-bit, 64-bit e Arcade) relacionados à busca.
-       2. Foque em lançamentos entre 1970 e 2002.
-       3. Se a busca for por algo claramente moderno (ex: PS5, PS4, Xbox Series, jogos de 2010 em diante), defina isModernRequest como true.
-       4. Caso contrário, liste os 10 melhores jogos que combinam com a busca.
-       5. Retorne APENAS o JSON conforme o esquema.`
-    : `You are Retro Codex, a game preservation expert.
-       USER IS SEARCHING FOR: "${query}".
-       
-       INSTRUCTIONS:
-       1. Identify classic games (8-bit, 16-bit, 32-bit, 64-bit consoles and Arcade) related to the search.
-       2. Focus on releases between 1970 and 2002.
-       3. If the search is clearly for something modern (e.g., PS5, PS4, Xbox Series, games from 2010 onwards), set isModernRequest to true.
-       4. Otherwise, list the 10 best games that match the search.
-       5. Return ONLY JSON according to the schema.`;
+  const prompt = `
+    Você é o Retro Codex. O usuário busca por: "${query}".
+    
+    INSTRUÇÕES:
+    1. Retorne uma lista de até 10 jogos clássicos relacionados.
+    2. Considere consoles: NES, Master System, SNES, Mega Drive, PS1, N64, GameBoy, Arcade.
+    3. Mesmo que a busca seja vaga, tente encontrar os melhores matches.
+    4. Se o usuário pedir algo de 2010 pra frente de forma explícita, defina isModernRequest: true.
+    5. RESPONDA APENAS COM O JSON.
+  `;
 
   try {
+    // Upgraded to gemini-3-pro-preview for complex reasoning tasks
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview', // Usando Flash para velocidade máxima na busca
+      model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -75,48 +60,36 @@ export async function searchGamesWithGemini(query: string, lang: 'pt-BR' | 'en-U
             isModernRequest: { type: Type.BOOLEAN }
           },
           required: ["games", "isModernRequest"]
-        },
-        systemInstruction: "Atue como um banco de dados técnico de jogos retro. Seja preciso com anos e plataformas clássicas."
+        }
       }
     });
 
-    const text = response.text;
-    const data = JSON.parse(cleanJsonResponse(text));
-    
+    const data = JSON.parse(cleanJsonResponse(response.text));
     return {
-      games: Array.isArray(data.games) ? data.games : [],
+      games: data.games || [],
       isModernRequest: !!data.isModernRequest
     };
   } catch (error) {
-    console.error("Erro na busca Gemini:", error);
+    console.error("Gemini Search Error:", error);
+    // Fallback safely if something goes wrong
     return { games: [], isModernRequest: false };
   }
 }
 
-/**
- * Busca detalhes profundos (dicas e cheats).
- */
 export async function fetchGameFullData(gameName: string, platform: string, lang: 'pt-BR' | 'en-US'): Promise<any> {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const isPt = lang === 'pt-BR';
 
-  const prompt = isPt 
-    ? `DETALHAMENTO TÉCNICO: "${gameName}" para "${platform}".
-       Gere um guia contendo:
-       - Um resumo nostálgico e histórico curto (summary).
-       - O ano exato de lançamento (releaseDate).
-       - Uma lista organizada de CHEATS/CÓDIGOS como senhas, botões ou GameShark (cheats).
-       - Dicas estratégicas para passar de fases ou chefes (tips).`
-    : `TECHNICAL DETAILS: "${gameName}" for "${platform}".
-       Generate a guide containing:
-       - A short nostalgic and historical summary (summary).
-       - The exact release year (releaseDate).
-       - An organized list of CHEATS/CODES such as passwords, button sequences or GameShark (cheats).
-       - Strategic tips for stages or bosses (tips).`;
+  const prompt = `
+    Guia completo para: "${gameName}" (${platform}).
+    Retorne: summary (história), releaseDate (ano), cheats (códigos e truques) e tips (estratégias).
+    Se não encontrar cheats, invente dicas úteis de gameplay.
+  `;
 
   try {
+    // Upgraded to gemini-3-pro-preview for high-quality structured content
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview', // Usando Pro para maior profundidade nos detalhes e cheats
+      model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -135,7 +108,7 @@ export async function fetchGameFullData(gameName: string, platform: string, lang
 
     return JSON.parse(cleanJsonResponse(response.text));
   } catch (error) {
-    console.error("Erro nos detalhes Gemini:", error);
+    console.error("Gemini Details Error:", error);
     return null;
   }
 }
