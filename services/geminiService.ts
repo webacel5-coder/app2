@@ -8,7 +8,6 @@ function cleanJsonResponse(text: string | undefined): string {
   // Remove markdown code blocks if present
   cleaned = cleaned.replace(/^```json/gi, "").replace(/```$/gi, "").trim();
   
-  // Isolate the JSON object if needed
   const firstBrace = cleaned.indexOf('{');
   const lastBrace = cleaned.lastIndexOf('}');
   
@@ -19,26 +18,33 @@ function cleanJsonResponse(text: string | undefined): string {
 }
 
 export async function searchGamesWithGemini(query: string, lang: 'pt-BR' | 'en-US'): Promise<{ games: any[], isModernRequest: boolean }> {
-  // Always use a named parameter for the API key as per @google/genai guidelines
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const prompt = `
     Você é o Retro Codex. O usuário busca por: "${query}".
-    
-    INSTRUÇÕES:
-    1. Retorne uma lista de até 10 jogos clássicos relacionados.
-    2. Considere consoles: NES, Master System, SNES, Mega Drive, PS1, N64, GameBoy, Arcade.
-    3. Mesmo que a busca seja vaga, tente encontrar os melhores matches.
-    4. Se o usuário pedir algo de 2010 pra frente de forma explícita, defina isModernRequest: true.
-    5. RESPONDA APENAS COM O JSON.
+    Encontre apenas jogos lançados originalmente até o ano 2002.
+
+    REGRAS CRÍTICAS PARA CAPAS (coverUrl):
+    1. Você DEVE encontrar a Box Art (capa) ORIGINAL da época do lançamento. 
+    2. NÃO use capas de Remakes, Remasters ou coletâneas modernas.
+    3. PROCEDIMENTO:
+       - Use o Google Search para encontrar o jogo no IGDB ou MobyGames.
+       - Tente extrair a URL de imagem que segue este padrão: https://images.igdb.com/igdb/image/upload/t_cover_big/[ID].jpg
+       - Se não encontrar IGDB, use a capa oficial do MobyGames ou Steam (se for o jogo original).
+    4. VALIDAÇÃO DE PLATAFORMA: Se o jogo é de SNES, a capa deve ter o logo da Nintendo/Super Nintendo. Se for de Mega Drive, o logo da Sega.
+    5. Se a imagem for de um jogo diferente ou de uma versão moderna, deixe o coverUrl vazio "".
+
+    RETORNO:
+    JSON com lista de até 8 jogos. Seja extremamente preciso com "platform" e "name".
   `;
 
   try {
-    // Upgraded to gemini-3-pro-preview for complex reasoning tasks
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-pro-preview', // Upgrade para Pro para melhor raciocínio de imagem
       contents: prompt,
       config: {
+        thinkingConfig: { thinkingBudget: 4000 }, // Ativa raciocínio para validar se a imagem é correta
+        tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -52,9 +58,10 @@ export async function searchGamesWithGemini(query: string, lang: 'pt-BR' | 'en-U
                   name: { type: Type.STRING },
                   platform: { type: Type.STRING },
                   year: { type: Type.STRING },
-                  briefDescription: { type: Type.STRING }
+                  briefDescription: { type: Type.STRING },
+                  coverUrl: { type: Type.STRING, description: "URL direta da Box Art ORIGINAL (.jpg/.png)" }
                 },
-                required: ["id", "name", "platform", "year", "briefDescription"]
+                required: ["id", "name", "platform", "year", "briefDescription", "coverUrl"]
               }
             },
             isModernRequest: { type: Type.BOOLEAN }
@@ -65,13 +72,23 @@ export async function searchGamesWithGemini(query: string, lang: 'pt-BR' | 'en-U
     });
 
     const data = JSON.parse(cleanJsonResponse(response.text));
+    
+    const processedGames = (data.games || []).map((game: any) => {
+      let url = game.coverUrl || "";
+      if (url.startsWith("//")) url = "https:" + url;
+      // Garante que se for IGDB, use o tamanho 'cover_big' para qualidade e compatibilidade
+      if (url.includes('images.igdb.com') && !url.includes('t_cover_big')) {
+         url = url.replace(/t_[a-zA-Z_]+/, 't_cover_big');
+      }
+      return { ...game, coverUrl: url };
+    });
+
     return {
-      games: data.games || [],
+      games: processedGames,
       isModernRequest: !!data.isModernRequest
     };
   } catch (error) {
     console.error("Gemini Search Error:", error);
-    // Fallback safely if something goes wrong
     return { games: [], isModernRequest: false };
   }
 }
@@ -81,15 +98,17 @@ export async function fetchGameFullData(gameName: string, platform: string, lang
   const isPt = lang === 'pt-BR';
 
   const prompt = `
-    Guia completo para: "${gameName}" (${platform}).
-    Retorne: summary (história), releaseDate (ano), cheats (códigos e truques) e tips (estratégias).
-    Se não encontrar cheats, invente dicas úteis de gameplay.
+    Retorne detalhes técnicos e segredos para: "${gameName}" (${platform}).
+    - summary: Sinopse histórica.
+    - releaseDate: Ano.
+    - cheats: Códigos originais de GameGenie, ProAction Replay ou botões.
+    - tips: Dicas estratégicas.
+    Idioma: ${isPt ? 'Português Brasileiro' : 'Inglês'}.
   `;
 
   try {
-    // Upgraded to gemini-3-pro-preview for high-quality structured content
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
         responseMimeType: "application/json",
